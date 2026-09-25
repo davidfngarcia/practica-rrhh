@@ -1,0 +1,6 @@
+CREATE DATABASE IF NO EXISTS `practica_rrhh` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS usuarios(
+    usuario VARCHAR(128) NOT NULL,
+	password_hash VARCHAR(128) NOT NULL
+)
