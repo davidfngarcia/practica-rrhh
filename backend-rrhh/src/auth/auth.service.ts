@@ -8,26 +8,34 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) { }
 
   async login(nombreUsuario: string, passwordPlain: string) {
-    // 1. Buscamos al usuario por su nombre de usuario
+    console.log('--- INTENTO DE LOGIN ---');
+    console.log('Usuario recibido en el body:', nombreUsuario);
+
+    // 1. Buscamos al usuario
     const user = await this.usersService.findByUsername(nombreUsuario);
+    console.log('Usuario encontrado en la BD:', user);
 
-    // 2. Si no existe, rechazamos sin dar detalles (mensaje genérico)
     if (!user) {
+      console.log('Error: El usuario no existe en la BD');
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // 3. Comparamos el password contra el hash guardado (passwordHash)
+    // 2. Comparamos contraseñas
+    console.log('Password plano recibido:', passwordPlain);
+    console.log('Hash guardado en la BD:', user.password_hash); // (o user.passwordHash según tu entidad)
+
     const passwordValida = await bcrypt.compare(passwordPlain, user.password_hash);
+    console.log('¿La contraseña coincide?:', passwordValida);
+
     if (!passwordValida) {
+      console.log('Error: La contraseña no coincide con el hash');
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // 4. Si todo coincide, generamos el token con los campos reales de tu entidad
     const payload = { sub: user.usuario, username: user.usuario };
-
     return {
       access_token: this.jwtService.sign(payload),
     };
