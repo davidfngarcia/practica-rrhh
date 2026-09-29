@@ -12,6 +12,10 @@
 
       // Busca un usuario por su nombre. Devuelve null si no existe.
       async findByUsername(nombreUsuario: string): Promise<Usuario | null> {
+
+        const [tablas] = await this.usuariosRepository.manager.query('SHOW TABLES;');
+        console.log('--- TABLAS QUE VE RENDER EN ESTE MOMENTO ---', tablas);
+        
         // Imprimamos todos los usuarios que ve la BD en este instante
         const todosLosUsuarios = await this.usuariosRepository.find();
         console.log('--- USUARIOS EN LA BD QUE VE RENDER ---', todosLosUsuarios);
