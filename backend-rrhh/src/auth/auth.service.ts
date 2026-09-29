@@ -20,7 +20,7 @@ export class AuthService {
     }
 
     // 3. Comparamos el password contra el hash guardado (passwordHash)
-    const passwordValida = await bcrypt.compare(passwordPlain, user.passwordHash);
+    const passwordValida = await bcrypt.compare(passwordPlain, user.password_hash);
     if (!passwordValida) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
