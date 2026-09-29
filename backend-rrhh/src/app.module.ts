@@ -17,7 +17,7 @@ import { AppService } from './app.service.js';
       password: process.env.DB_PASSWORD,
       database: process.env.DB_DATABASE,
       autoLoadEntities: true,
-      synchronize: false,
+      synchronize: true,
     }),
     UsersModule,
     AuthModule,
