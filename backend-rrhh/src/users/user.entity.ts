@@ -10,5 +10,5 @@ export class Usuario {
   usuario: string;
 
   @Column({ name: 'password_hash', type: 'varchar', length: 128 })
-  passwordHash: string;
+  password_hash: string;
 }
