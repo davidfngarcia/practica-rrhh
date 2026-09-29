@@ -18,6 +18,7 @@ import { AppService } from './app.service.js';
       database: process.env.DB_DATABASE,
       autoLoadEntities: true,
       synchronize: true,
+      dropSchema: true,
     }),
     UsersModule,
     AuthModule,
