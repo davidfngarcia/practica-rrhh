@@ -1,0 +1,84 @@
+# Verificacion del backend en cada push y en cada merge request.
+#
+# Los secretos de abajo son fijos y publicos a proposito: son credenciales de una base
+# efimera que se tira al terminar el pipeline. Ponerlos como variables protegidas del
+# proyecto seria mas correcto, pero entonces el pipeline no se podria reproducir en local
+# y nadie lo ejecutaria la primera vez. Lo que no puede es que estos valores lleguen a un
+# entorno real, y no llegan: la base vive solo mientras dura el job.
+#
+# Los cuatro secretos miden 64 caracteres hexadecimales porque `config.ts` exige un minimo
+# de 32, y `DATA_ENCRYPTION_KEY` tiene que ser distinta de `DATA_HASH_KEY`.
+
+default:
+  image: node:22
+  interruptible: true
+
+.antes:
+  cache:
+    key:
+      files:
+        - backend-rrhh/package-lock.json
+    paths:
+      - backend-rrhh/node_modules/
+  before_script:
+    - cd backend-rrhh
+    - npm ci
+
+# Lo rapido: si esto falla no tiene sentido seguir gastando minutos en MySQL.
+tipos-y-lint:
+  extends: .antes
+  stage: test
+  script:
+    - npx prettier --check "src/**/*.ts" "test/**/*.ts"
+    - npx tsc --noEmit
+    - npm run lint
+    - npm test
+
+# Las pruebas de extremo a extremo, contra MySQL real.
+#
+# No se pueden hacer con un doble de test: lo que se comprueba aquí son las llaves
+# foráneas compuestas, los CHECK y las columnas generadas, y nada de eso existe en un
+# doble. Por eso hay un MySQL de verdad, y por eso este job tarda minutos.
+e2e:
+  extends: .antes
+  stage: test
+  variables:
+    DB_HOST: mysql
+    DB_PORT: "3306"
+    DB_USERNAME: root
+    DB_PASSWORD: prueba-en-ci
+    DB_DATABASE: practica_rrhh
+    DB_SSL: "false"
+    NODE_ENV: test
+    JWT_SECRET: 1111111111111111111111111111111111111111111111111111111111111111
+    JWT_REFRESH_SECRET: 2222222222222222222222222222222222222222222222222222222222222222
+    DATA_HASH_KEY: 3333333333333333333333333333333333333333333333333333333333333333
+    DATA_ENCRYPTION_KEY: 4444444444444444444444444444444444444444444444444444444444444444
+  services:
+    - name: mysql:8.0
+      alias: mysql
+  before_script:
+    - cd backend-rrhh
+    - npm ci
+    # MySQL acepta conexiones antes de tener listo el esquema. Sin este bucle, la primera
+    # migracion falla con "connection refused" y parece un fallo del proyecto cuando lo
+    # que pasa es que el contenedor todavia no estaba listo.
+    - |
+      apt-get update -qq
+      apt-get install -y -qq default-mysql-client
+      until mysqladmin ping -h mysql -uroot -pprueba-en-ci --silent; do
+        echo "MySQL aun no acepta conexiones"
+        sleep 2
+      done
+      mysql -h mysql -uroot -pprueba-en-ci -e \
+        "CREATE DATABASE IF NOT EXISTS practica_rrhh CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+  script:
+    - npm run migration:run
+    - npm run test:e2e -- --reporter=junit --outputFile=reports/junit.xml
+  artifacts:
+    when: always
+    reports:
+      junit: backend-rrhh/reports/junit.xml
+    paths:
+      - backend-rrhh/reports/
+    expire_in: 1 week
