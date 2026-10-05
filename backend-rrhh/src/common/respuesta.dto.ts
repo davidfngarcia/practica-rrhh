@@ -420,3 +420,70 @@ export class EmpresaRespuestaDto {
   @ApiProperty({ description: 'Ultima modificacion, en UTC.' })
   updated_at: Date;
 }
+/** Respuesta de un rol, con los codigos de permiso que tiene concedidos. */
+export class RolRespuestaDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({
+    description: 'Codigo del rol, unico dentro de la empresa.',
+  })
+  codigo: string;
+
+  @ApiProperty({ description: 'Nombre legible del rol.' })
+  nombre: string;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Descripcion del rol.' })
+  descripcion: string | null;
+
+  @ApiProperty({
+    description:
+      'Si el rol viene de la plantilla del sistema. Los de plantilla no se pueden ' +
+      'renombrar ni dar de baja, pero sus permisos si se pueden ajustar.',
+  })
+  es_sistema: boolean;
+
+  @ApiProperty({ description: 'Si el rol esta activo y admite membresias.' })
+  activo: boolean;
+
+  @ApiProperty({
+    type: [String],
+    description: 'Codigos de los permisos concedidos al rol.',
+  })
+  permisos: string[];
+
+  @ApiProperty({ description: 'Alta del registro, en UTC.' })
+  created_at: Date;
+
+  @ApiProperty({ description: 'Ultima modificacion, en UTC.' })
+  updated_at: Date;
+}
+
+/** Respuesta de un permiso del catalogo global. */
+export class PermisoRespuestaDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({
+    description: 'Codigo del permiso, con la forma modulo.accion.',
+  })
+  codigo: string;
+
+  @ApiProperty({ description: 'Modulo al que pertenece el permiso.' })
+  modulo: string;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Que permite hacer.' })
+  descripcion: string | null;
+}
+
+/** Listado paginado de roles. */
+export class PaginadoRolesDto {
+  @ApiProperty({ type: [RolRespuestaDto] })
+  datos: RolRespuestaDto[];
+
+  @ApiProperty({
+    description:
+      'Numero total de elementos que cumplen el filtro, no solo los de esta pagina.',
+  })
+  total: number;
+}

@@ -17,6 +17,7 @@ import { rutaApi } from '../src/common/prefijo.js';
 import {
   IDS_PRUEBA,
   PASSWORD_PRUEBA,
+  USUARIO_ADMIN_PRUEBA,
   USUARIO_PRUEBA,
   abrirConexionDePrueba,
   asegurarDatosDePrueba,
@@ -103,22 +104,28 @@ export async function borrarEn(
   return cabecera.affectedRows ?? 0;
 }
 
-/** Token de acceso del usuario de prueba en la empresa indicada. */
+/**
+ * Token de acceso del usuario de prueba en la empresa indicada.
+ *
+ * `usuario` se puede pasar para iniciar sesion con otro de los usuarios de la semilla.
+ * Por defecto usa `prueba_auth`, que es RRHH en la A y EMPLEADO en la B.
+ */
 export async function iniciarSesion(
   app: INestApplication,
   empresaId: string,
+  usuario: string = USUARIO_PRUEBA,
 ): Promise<string> {
   const respuesta = await request(app.getHttpServer())
     .post(rutaApi('/auth/login'))
     .send({
-      usuario: USUARIO_PRUEBA,
+      usuario,
       password: PASSWORD_PRUEBA,
       empresa_id: empresaId,
     });
 
   if (respuesta.status !== 200) {
     throw new Error(
-      `No se pudo iniciar sesion en ${empresaId}: ${respuesta.status} ${JSON.stringify(respuesta.body)}`,
+      `No se pudo iniciar sesion de ${usuario} en ${empresaId}: ${respuesta.status} ${JSON.stringify(respuesta.body)}`,
     );
   }
 
@@ -128,6 +135,16 @@ export async function iniciarSesion(
 /** Token con el rol RRHH, que es el que puede escribir en los catalogos. */
 export function tokenRRHH(app: INestApplication): Promise<string> {
   return iniciarSesion(app, IDS_PRUEBA.empresaA);
+}
+
+/**
+ * Token con el rol `ADMIN_EMPRESA` de la empresa A.
+ *
+ * Es el unico rol con permisos `rol.*`. RRHH administra el personal pero no el modelo de
+ * seguridad, asi que las suites de la API de roles usan este token.
+ */
+export function tokenAdmin(app: INestApplication): Promise<string> {
+  return iniciarSesion(app, IDS_PRUEBA.empresaA, USUARIO_ADMIN_PRUEBA);
 }
 
 /**
@@ -168,7 +185,7 @@ export interface RespuestaPeticion {
 }
 
 /** Metodos HTTP usados por las suites. */
-type Metodo = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type Metodo = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /**
  * Ejecuta una peticion HTTP contra la app de prueba.
@@ -196,6 +213,8 @@ export async function llamar(
         return request(servidor).get(completa);
       case 'POST':
         return request(servidor).post(completa);
+      case 'PUT':
+        return request(servidor).put(completa);
       case 'PATCH':
         return request(servidor).patch(completa);
       case 'DELETE':

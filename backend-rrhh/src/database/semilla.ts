@@ -9,9 +9,11 @@ import {
 /**
  * Datos de prueba para las suites de verificacion.
  *
- * Crea dos empresas y un usuario miembro de ambas con roles distintos: RRHH en la A y
- * EMPLEADO en la B. Esa diferencia es lo que permite comprobar las dos barreras por
- * separado, el permiso dentro de una empresa y el aislamiento entre empresas.
+ * Crea dos empresas y dos usuarios. `prueba_auth` es miembro de ambas con roles
+ * distintos: RRHH en la A y EMPLEADO en la B. Esa diferencia es lo que permite comprobar
+ * las dos barreras por separado, el permiso dentro de una empresa y el aislamiento entre
+ * empresas. `prueba_admin` es `ADMIN_EMPRESA` en la A, que es el unico rol con permisos
+ * `rol.*`.
  *
  * Vive en `src` y no en las suites porque lo usan dos consumidores que no comparten
  * codigo: los tests de vitest lo importan como modulo y `tmp-verif/semilla.mjs` lo
@@ -25,14 +27,27 @@ import {
 /** Identificadores fijos de los datos de prueba. */
 export const IDS_PRUEBA = {
   usuario: 'c0000000-0000-4000-8000-000000000001',
+  usuarioAdmin: 'c0000000-0000-4000-8000-000000000002',
   empresaA: 'e0000000-0000-4000-8000-00000000000a',
   empresaB: 'e0000000-0000-4000-8000-00000000000b',
   membresiaA: 'f0000000-0000-4000-8000-00000000000a',
   membresiaB: 'f0000000-0000-4000-8000-00000000000b',
+  membresiaAdmin: 'f0000000-0000-4000-8000-00000000000c',
+  membresiaAdminB: 'f0000000-0000-4000-8000-00000000000d',
 } as const;
 
-/** Nombre de usuario con el que inician sesion las pruebas. */
+/**
+ * Nombres de usuario con los que inician sesion las pruebas.
+ *
+ * Son dos y no uno porque el reparto de permisos lo exige. `prueba_auth` es RRHH, que
+ * administra personal y catalogos pero NO gestiona roles: los permisos `rol.*` se
+ * reservan a `ADMIN_EMPRESA`, ya que quien puede editar roles puede concederse cualquier
+ * permiso o dejar a la empresa sin nadie con acceso. Con un solo usuario habria que
+ * elegir entre probar la administracion de personal o la de roles, y acabar grantingos
+ * `ADMIN_EMPRESA` para que las dos cosas cupieran en un token.
+ */
 export const USUARIO_PRUEBA = 'prueba_auth';
+export const USUARIO_ADMIN_PRUEBA = 'prueba_admin';
 
 /**
  * Password de las pruebas.
@@ -153,12 +168,31 @@ export async function asegurarDatosDePrueba(
     ),
   );
 
+  // Usuario administrador de la empresa A. Es el que tiene `rol.*`, y por eso las
+  // pruebas de la API de roles inician sesion con el.
+  //
+  // `usuario` es UNIQUE en toda la tabla, no por empresa: es la identidad global de la
+  // persona, y lo que se reparte por empresa son las membresias. Por eso hace falta una
+  // segunda fila y no una segunda membresia del mismo usuario en la misma empresa, que
+  // choca con `uq_membresia_empresa_usuario`.
+  creados.push(
+    await insertarSiFalta(
+      conexion,
+      'usuario prueba_admin',
+      `INSERT INTO usuarios (id, usuario, password_hash, email, activo, created_at, updated_at)
+       VALUES (?, ?, ?, 'prueba_admin@ejemplo.local', 1, NOW(3), NOW(3))`,
+      [IDS_PRUEBA.usuarioAdmin, USUARIO_ADMIN_PRUEBA, hash],
+      { tabla: '`usuarios`', donde: '`id` = ?' },
+      [IDS_PRUEBA.usuarioAdmin],
+    ),
+  );
+
   // El hash se regenera en cada ejecucion (bcrypt aplica sal aleatoria), asi que se
   // fija despues para que la password documentada siga siendo la valida.
-  await conexion.query('UPDATE usuarios SET password_hash = ? WHERE id = ?', [
-    hash,
-    IDS_PRUEBA.usuario,
-  ]);
+  await conexion.query(
+    'UPDATE usuarios SET password_hash = ? WHERE id IN (?, ?)',
+    [hash, IDS_PRUEBA.usuario, IDS_PRUEBA.usuarioAdmin],
+  );
 
   // Cada empresa recibe una copia de los roles de plantilla. Va justo despues de
   // crearla: `crearRolesPlantilla` necesita una empresa que ya exista para poder
@@ -194,9 +228,29 @@ export async function asegurarDatosDePrueba(
     );
   }
 
-  for (const [id, empresaId, rolCodigo] of [
-    [IDS_PRUEBA.membresiaA, IDS_PRUEBA.empresaA, 'RRHH'],
-    [IDS_PRUEBA.membresiaB, IDS_PRUEBA.empresaB, 'EMPLEADO'],
+  for (const [id, empresaId, usuarioId, rolCodigo] of [
+    [IDS_PRUEBA.membresiaA, IDS_PRUEBA.empresaA, IDS_PRUEBA.usuario, 'RRHH'],
+    [
+      IDS_PRUEBA.membresiaB,
+      IDS_PRUEBA.empresaB,
+      IDS_PRUEBA.usuario,
+      'EMPLEADO',
+    ],
+    [
+      IDS_PRUEBA.membresiaAdmin,
+      IDS_PRUEBA.empresaA,
+      IDS_PRUEBA.usuarioAdmin,
+      'ADMIN_EMPRESA',
+    ],
+    // El administrador tambien esta en la B, para que las pruebas puedan escribir en las
+    // dos empresas con el mismo usuario y comprobar el aislamiento sin que el 403 por
+    // permisos se confunda con el 404 por tenant.
+    [
+      IDS_PRUEBA.membresiaAdminB,
+      IDS_PRUEBA.empresaB,
+      IDS_PRUEBA.usuarioAdmin,
+      'ADMIN_EMPRESA',
+    ],
   ]) {
     // Se busca el rol DENTRO de la empresa. Antes de que los roles fueran por empresa,
     // `SELECT id FROM rol WHERE codigo = ?` bastaba; con roles por empresa ese select
@@ -216,7 +270,7 @@ export async function asegurarDatosDePrueba(
         `membresia ${rolCodigo}`,
         `INSERT INTO usuario_empresa (id, empresa_id, usuario_id, rol_id, activo, created_at, updated_at)
          VALUES (?, ?, ?, ?, 1, NOW(3), NOW(3))`,
-        [id, empresaId, IDS_PRUEBA.usuario, rolId],
+        [id, empresaId, usuarioId, rolId],
         { tabla: '`usuario_empresa`', donde: '`id` = ?' },
         [id],
       ),
@@ -224,7 +278,7 @@ export async function asegurarDatosDePrueba(
 
     await conexion.query(
       'UPDATE usuario_empresa SET empresa_id = ?, usuario_id = ?, rol_id = ?, activo = 1 WHERE id = ?',
-      [empresaId, IDS_PRUEBA.usuario, rolId, id],
+      [empresaId, usuarioId, rolId, id],
     );
   }
 
@@ -258,6 +312,7 @@ async function main(): Promise<void> {
 
     console.log('Datos de prueba listos.');
     console.log(`  usuario:      ${USUARIO_PRUEBA}`);
+    console.log(`  administrador: ${USUARIO_ADMIN_PRUEBA}`);
     console.log(`  password:     ${PASSWORD_PRUEBA}`);
     console.log(
       `  empresas:     ${membresias.map((m) => `${m.empresa} (${m.rol})`).join(', ')}`,

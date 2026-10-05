@@ -85,6 +85,10 @@ async function bootstrap() {
         .addTag('Personas', 'Catalogo global de personas.')
         .addTag('Empleados', 'Contrataciones por empresa.')
         .addTag('Empresa', 'Datos de la empresa de la sesion.')
+        .addTag(
+          'Roles',
+          'Roles por empresa y catalogo de permisos que se les puede conceder.',
+        )
         .build(),
     );
 

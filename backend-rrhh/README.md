@@ -27,8 +27,20 @@ caracteres: `JWT_SECRET`, `JWT_REFRESH_SECRET`, `DATA_HASH_KEY` y
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-La semilla crea datos de desarrollo: dos empresas, un usuario en ambas y los roles
-asociados. Es idempotente, así que volver a ejecutarla no duplica nada.
+La semilla crea datos de desarrollo: dos empresas y **dos** usuarios.
+
+| Usuario        | Empresa A      | Empresa B      |
+| -------------- | -------------- | -------------- |
+| `prueba_auth`  | `RRHH`         | `EMPLEADO`     |
+| `prueba_admin` | `ADMIN_EMPRESA`| `ADMIN_EMPRESA`|
+
+Son dos y no uno porque el reparto de permisos lo exige: `rol.*` está reservado a
+`ADMIN_EMPRESA`, así que con un solo usuario habría que elegir entre probar la
+administración de personal o la de roles, y acabar concediéndole `rol.*` a `RRHH` para
+que las dos cosas cupieran en un token. `prueba_auth` sirve para las dos barreras por
+separado, el permiso dentro de una empresa y el aislamiento entre empresas.
+
+Es idempotente, así que volver a ejecutarla no duplica nada.
 
 ### `cifrar-datos` es obligatorio si la base ya tenía personas
 
@@ -126,6 +138,13 @@ Sin el prefijo `/api/v1`.
 | `/empleados`                               | `POST`   | `empleado.crear`         |
 | `/empleados`                               | `PATCH`  | `empleado.actualizar`    |
 | `/empleados`                               | `DELETE` | `empleado.eliminar`      |
+| `/roles`                                   | `GET`    | `rol.leer`               |
+| `/roles`                                   | `POST`   | `rol.crear`              |
+| `/roles/:id`                               | `GET`    | `rol.leer`               |
+| `/roles/:id`                               | `PATCH`  | `rol.actualizar`         |
+| `/roles/:id`                               | `DELETE` | `rol.eliminar`           |
+| `/roles/:id/permisos`                      | `PUT`    | `rol.actualizar`         |
+| `/roles/permisos`                          | `GET`    | `rol.leer`               |
 
 `/empresa` es singular y **no acepta identificador**: la empresa sale del token, así que
 la única empresa que esta API puede operar es la de la sesión. No hay `GET /empresas`
@@ -133,6 +152,10 @@ la única empresa que esta API puede operar es la de la sesión. No hay `GET /em
 empresa y autenticarse en ella como su propio administrador). El alta de empresa es una
 operación de plataforma, no del tenant. Para el selector del frontend está
 `GET /auth/empresas`, que devuelve las empresas a las que el usuario pertenece.
+
+`PUT /roles/:id/permisos` es `PUT` y no `PATCH` porque lo que llega es lo que se aplica:
+es la única forma de **quitar** un permiso, porque con semántica de parche solo se podrían
+añadir.
 
 **Pendiente**: los listados (`GET /`) no declaran la forma de su respuesta, así que en el
 documento aparecen sin esquema. Los de detalle, altas y actualizaciones sí la declaran.
@@ -208,6 +231,76 @@ llaves foráneas compuestas, `(empresa_id, departamento_id)` y
 `(empresa_id, puesto_id)`. Si el servicio se olvidara de comprobarla, MySQL rechazaría
 el INSERT. Ver [`docs/esquema.md`](docs/esquema.md) para el detalle de por qué el
 mapeo de TypeORM no puede declarar esas relaciones.
+
+## Roles
+
+Los roles son **de cada empresa**, no globales. El catálogo vive en `rol`, con
+`empresa_id` no nulo, y la unicidad de `codigo` es por empresa: dos empresas pueden
+tener un `RRHH` cada una y son cosas distintas. Compartir el catálogo obligaría a que
+una empresa no pudiera usar el nombre de rol que ya usa otra.
+
+Como el filtro es `empresa_id = sesion.empresa_id`, un UUID de rol de otra empresa
+responde **404 y no 403**: con 403 un cliente podría enumerar UUIDs y deducir qué roles
+existen en empresas ajenas.
+
+### Plantillas y copias
+
+`ADMIN_EMPRESA`, `RRHH` y `EMPLEADO` no son filas de rol sino **plantillas**: tienen
+`empresa_id IS NULL` y `es_sistema = 1`. Cuando se da de alta una empresa,
+`crearRolesPlantilla()` le copia las tres como roles suyos. La copia lleva un id
+determinista derivado de `(empresa_id, codigo)`, así que volver a ejecutar la copia no
+duplica nada y las membresías existentes no se rompen.
+
+De ahí sale lo que significa `es_sistema`: **"viene de plantilla"**, no "global". No
+marca que el rol sea intocable, marca de dónde salió. Consecuencias:
+
+| Operación                  | Rol de plantilla (`es_sistema`) | Rol propio            |
+| -------------------------- | ------------------------------ | --------------------- |
+| Ajustar sus permisos       | Sí                              | Sí                    |
+| Renombrar                  | No, `409`                       | Sí                    |
+| Dar de baja                | No, `409`                       | Sí, si no hay gente   |
+| Desactivar                 | No, `409`                       | Sí, si no hay gente   |
+
+Los permisos de una copia **sí** se tocan, y es justo lo que justifica que cada empresa
+tenga la suya: si el rol fuera el mismo para todos, ajustar sus permisos en una empresa
+afectaría a las demás.
+
+Las plantillas no salen por la API. No hay ruta que las devuelva ni que las asigne, y
+una membresia que apuntara a una plantilla se quedaría con un rol que no existe dentro
+de su empresa. `es_sistema` tampoco se acepta en el cuerpo del `PATCH`: si se pudiera
+limpiar, bastaría con enviarlo para volver el rol intocable y bloquear su propio
+borrado.
+
+### Los permisos van en `PUT /roles/:id/permisos`
+
+Los roles del sistema vienen con sus permisos de la plantilla, pero una empresa
+terminará queriendo ajustarlos. Se editan por **código**, no por id: el código es lo
+que conoce quien está configurando la empresa, y un UUID no aparece en ninguna parte.
+
+Un código que no existe en el catálogo se rechaza con `400` nombrándolo **tal como
+llegó**, no normalizado: es lo único que el cliente puede comparar con lo que envió. Si
+se ignorara en silencio, creería haber concedido un permiso y se encontraría con un
+`403` más tarde sin relación aparente.
+
+`codigo` no se puede cambiar por `PATCH`. Un rol ya asignado tiene ese código escrito en
+la auditoría y en lo que el usuario ve al cambiar de empresa; darle otro valor deja los
+registros antiguos hablando de un rol que ya no existe. Para renombrarlo hay que darlo
+de baja y crear otro.
+
+### Dos bloqueos que no son caprichos
+
+- **No se desactiva ni se da de baja un rol con membresías activas.** El guard relee los
+  permisos en cada petición, así que el efecto sería inmediato: expulsaría a esos
+  usuarios en su siguiente llamada, sin aviso y sin que nadie haya tocado sus cuentas.
+  Es mejor un `409` que diga que hay que reasignar primero.
+- **Solo `ADMIN_EMPRESA` tiene `rol.*`.** Quien puede editar roles puede concederse
+  cualquier permiso o dejar a la empresa sin nadie con acceso, así que es el privilegio
+  más peligroso del sistema y no se reparte con el resto. `RRHH` administra el personal
+  pero no el modelo de seguridad.
+
+Las bajas son lógicas, y como `rol_permiso` no tiene `deleted_at`, revocar un permiso es
+un `DELETE` real. Ocultar la fila dejaría el permiso activo a ojos del guard, que lee la
+tabla.
 
 ## Pruebas
 
