@@ -13,6 +13,7 @@ import { EmpleadosModule } from './empleados/empleado.module.js';
 import { SaludModule } from './salud/salud.module.js';
 import { EmpresasModule } from './empresas/empresa.module.js';
 import { RolesModule } from './roles/rol.module.js';
+import { MembresiasModule } from './membresias/membresia.module.js';
 import { JwtAuthGuard, PermissionsGuard } from './auth/guards.js';
 
 @Module({
@@ -28,6 +29,7 @@ import { JwtAuthGuard, PermissionsGuard } from './auth/guards.js';
     SaludModule,
     EmpresasModule,
     RolesModule,
+    MembresiasModule,
     // Limite global por IP. Los endpoints de login y refresh llevan ademas su
     // propio limite, mas estricto.
     ThrottlerModule.forRoot([

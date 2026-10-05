@@ -487,3 +487,71 @@ export class PaginadoRolesDto {
   })
   total: number;
 }
+
+/** Persona que ocupa una membresia. */
+export class UsuarioMembresiaDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ description: 'Nombre de usuario con el que inicia sesion.' })
+  usuario: string;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Correo de contacto.' })
+  email: string | null;
+
+  @ApiProperty({
+    description:
+      'Si la persona esta activa en el sistema. Un usuario inactivo no puede ' +
+      'autenticarse ni aunque su membresia siga activa.',
+  })
+  activo: boolean;
+}
+
+/** Rol que tiene asignado una membresia. */
+export class RolMembresiaDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ description: 'Codigo del rol dentro de la empresa.' })
+  codigo: string;
+
+  @ApiProperty({ description: 'Nombre legible del rol.' })
+  nombre: string;
+}
+
+/** Membresia de un usuario en la empresa de la sesion. */
+export class MembresiaRespuestaDto {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: UsuarioMembresiaDto })
+  usuario: UsuarioMembresiaDto;
+
+  @ApiProperty({ type: RolMembresiaDto })
+  rol: RolMembresiaDto;
+
+  @ApiProperty({
+    description:
+      'Si la membresia esta activa. Una membresia inactiva no concede permisos, pero ' +
+      'se conserva para no perder el historico de quien estuvo en la empresa.',
+  })
+  activo: boolean;
+
+  @ApiProperty({ description: 'Alta de la membresia.' })
+  created_at: Date;
+
+  @ApiProperty({ description: 'Ultima modificacion.' })
+  updated_at: Date;
+}
+
+/** Listado paginado de membresias. */
+export class PaginadoMembresiasDto {
+  @ApiProperty({ type: [MembresiaRespuestaDto] })
+  datos: MembresiaRespuestaDto[];
+
+  @ApiProperty({
+    description:
+      'Numero total de elementos que cumplen el filtro, no solo los de esta pagina.',
+  })
+  total: number;
+}
