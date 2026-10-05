@@ -84,6 +84,7 @@ async function bootstrap() {
         .addTag('Departamentos', 'Catalogo de departamentos.')
         .addTag('Personas', 'Catalogo global de personas.')
         .addTag('Empleados', 'Contrataciones por empresa.')
+        .addTag('Empresa', 'Datos de la empresa de la sesion.')
         .build(),
     );
 

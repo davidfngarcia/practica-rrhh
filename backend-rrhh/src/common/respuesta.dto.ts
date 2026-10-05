@@ -360,3 +360,63 @@ export class PaginadoEmpleadosDto {
   })
   total: number;
 }
+
+/**
+ * Respuesta de la empresa de la sesion.
+ *
+ * `codigo` e `identificacion_tributaria` salen siempre y no se pueden cambiar por la API:
+ * identifican a la empresa donde ya no se puede deshacer, como una nomina emitida o una
+ * factura.
+ */
+export class EmpresaRespuestaDto {
+  @ApiProperty({ format: 'uuid', description: 'Identificador de la empresa.' })
+  id: string;
+
+  @ApiProperty({
+    description:
+      'Codigo de la empresa. Solo lectura: cambiarlo reescribiria la identidad que ' +
+      'figura en integraciones y nominas ya emitidas.',
+  })
+  codigo: string;
+
+  @ApiProperty({ description: 'Nombre de la empresa.' })
+  nombre: string;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Razon social.' })
+  razon_social: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Nombre comercial, si es distinto del nombre legal.',
+  })
+  nombre_comercial: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Identificacion tributaria. Solo lectura por la misma razon que el codigo.',
+  })
+  identificacion_tributaria: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Correo de contacto.' })
+  email: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Telefono de contacto.' })
+  telefono: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Direccion fiscal.' })
+  direccion: string | null;
+
+  @ApiProperty({
+    description:
+      'Si la empresa esta activa. Solo lectura: desactivarla por la API dejaria al ' +
+      'usuario sin poder volver a entrar.',
+  })
+  activo: boolean;
+
+  @ApiProperty({ description: 'Alta del registro, en UTC.' })
+  created_at: Date;
+
+  @ApiProperty({ description: 'Ultima modificacion, en UTC.' })
+  updated_at: Date;
+}

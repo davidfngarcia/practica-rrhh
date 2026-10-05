@@ -112,6 +112,8 @@ Sin el prefijo `/api/v1`.
 | `/auth/me`                                 | `GET`    | autenticado              |
 | `/auth/empresas`                           | `GET`    | autenticado              |
 | `/auth/cambiar-empresa`                    | `POST`   | autenticado              |
+| `/empresa`                                | `GET`    | `empresa.leer`           |
+| `/empresa`                                | `PATCH`  | `empresa.actualizar`     |
 | `/departamentos`, `/puestos`               | `GET`    | `<módulo>.leer`          |
 | `/departamentos`, `/puestos`               | `POST`   | `<módulo>.crear`         |
 | `/departamentos`, `/puestos`               | `PATCH`  | `<módulo>.actualizar`    |
@@ -124,6 +126,13 @@ Sin el prefijo `/api/v1`.
 | `/empleados`                               | `POST`   | `empleado.crear`         |
 | `/empleados`                               | `PATCH`  | `empleado.actualizar`    |
 | `/empleados`                               | `DELETE` | `empleado.eliminar`      |
+
+`/empresa` es singular y **no acepta identificador**: la empresa sale del token, así que
+la única empresa que esta API puede operar es la de la sesión. No hay `GET /empresas`
+(listar tenants sería filtrar la lista de clientes) ni `POST /empresas` (crear una
+empresa y autenticarse en ella como su propio administrador). El alta de empresa es una
+operación de plataforma, no del tenant. Para el selector del frontend está
+`GET /auth/empresas`, que devuelve las empresas a las que el usuario pertenece.
 
 **Pendiente**: los listados (`GET /`) no declaran la forma de su respuesta, así que en el
 documento aparecen sin esquema. Los de detalle, altas y actualizaciones sí la declaran.
