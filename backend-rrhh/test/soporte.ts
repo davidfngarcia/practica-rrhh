@@ -238,11 +238,16 @@ export async function conPermisosTemporales(
   codigos: string[],
   prueba: (token: string) => Promise<void>,
 ): Promise<void> {
+  // El rol tiene que ser el DE ESA EMPRESA, no el global. Con roles por empresa,
+  // `WHERE codigo = 'EMPLEADO'` a secas devuelve tres filas (las dos empresas mas la
+  // plantilla) y MySQL se quedaria con la primera: los permisos se concederian a un rol
+  // que la sesion de `empresaB` no usa, y la prueba pasaria sin comprobar nada.
   const [rolEmpleado] = await consultar(
     conexion,
-    "SELECT id FROM rol WHERE codigo = 'EMPLEADO'",
+    'SELECT id FROM rol WHERE codigo = ? AND empresa_id = ?',
+    ['EMPLEADO', IDS_PRUEBA.empresaB],
   );
-  if (!rolEmpleado) throw new Error('No existe el rol EMPLEADO');
+  if (!rolEmpleado) throw new Error('No existe el rol EMPLEADO en empresaB');
 
   const concedidos: string[] = [];
 
@@ -277,6 +282,36 @@ export async function conPermisosTemporales(
            JOIN permiso p ON p.id = rp.permiso_id
           WHERE rp.rol_id = ? AND p.codigo = ?`,
         [rolEmpleado.id, codigo],
+      );
+    }
+  }
+
+  // La comprobacion va DESPUES del finally, no dentro. Si `prueba` falla, el error
+  // original es el que interesa; lanzar aqui lo taparia con un "la revocacion fallo"
+  // que no es lo que paso, y se perderia el motivo real del fallo.
+  //
+  // Ademas se mira solo lo que concedio esta ejecucion, y no "el rol tiene justo los
+  // permisos de la semilla". Todas las suites comparten el rol EMPLEADO de empresaB y
+  // corren en paralelo, asi que una comprobacion global desde fuera puede ver los
+  // permisos que otra suite esta GRANTANDO en ese mismo instante, y falla sin que
+  // nadie haya roto nada.
+  if (concedidos.length > 0) {
+    const restantes = await consultar(
+      conexion,
+      `SELECT p.codigo
+         FROM rol_permiso rp
+         JOIN permiso p ON p.id = rp.permiso_id
+        WHERE rp.rol_id = ?
+          AND p.codigo IN (${concedidos.map(() => '?').join(', ')})`,
+      [rolEmpleado.id, ...concedidos],
+    );
+    if (restantes.length > 0) {
+      throw new Error(
+        `La revocacion fallo: siguen activos ${restantes
+          .map((r) => String(r.codigo))
+          .join(
+            ', ',
+          )}. La base quedaria tocada para las siguientes ejecuciones.`,
       );
     }
   }

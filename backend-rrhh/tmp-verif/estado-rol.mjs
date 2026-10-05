@@ -1,0 +1,16 @@
+﻿import { createConnection } from "mysql2/promise";
+import "dotenv/config";
+const c = await createConnection({host:process.env.DB_HOST,port:+process.env.DB_PORT,user:process.env.DB_USERNAME,password:process.env.DB_PASSWORD,database:process.env.DB_DATABASE});
+const [cols] = await c.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rol' ORDER BY ORDINAL_POSITION");
+console.log("columnas rol:", cols.map(r=>r.COLUMN_NAME).join(", "));
+const [idx] = await c.query("SELECT INDEX_NAME, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='rol'");
+console.log("indices:", idx.map(r=>`${r.INDEX_NAME}(${r.COLUMN_NAME})`).join(", "));
+const [fks] = await c.query("SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME='rol'");
+console.log("fks rol:", fks.map(r=>r.CONSTRAINT_NAME).join(", "));
+const [mig] = await c.query("SELECT name FROM migrations WHERE name LIKE '%Roles%'");
+console.log("migracion registrada:", mig.length ? mig[0].name : "NINGUNA");
+const [roles] = await c.query("SELECT id, empresa_id, codigo, es_sistema FROM rol ORDER BY codigo");
+console.log("roles:", roles.map(r=>`${r.codigo}/${r.empresa_id ?? "plantilla"}/es=${r.es_sistema}`).join(" | "));
+const [emp] = await c.query("SELECT COUNT(*) AS n FROM empresa");
+console.log("empresas:", emp[0].n);
+await c.end();

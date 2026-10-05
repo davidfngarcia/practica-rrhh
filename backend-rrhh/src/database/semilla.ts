@@ -1,4 +1,5 @@
 import * as bcrypt from 'bcrypt';
+import { crearRolesPlantilla, ejecutarConMysql } from './plantilla-roles.js';
 import {
   createConnection,
   type Connection,
@@ -93,6 +94,26 @@ export function abrirConexionDePrueba(): Promise<Connection> {
  * Inserta la fila si no existe. Devuelve la descripcion de lo creado, o `null` si ya
  * estaba.
  */
+/**
+ * Roles de una empresa, indexados por codigo.
+ *
+ * Los roles de plantilla (`empresa_id IS NULL`) quedan fuera a proposito: no son de
+ * esta empresa, y asignarle uno a un usuario seria darle un rol que no existe en su
+ * tenant.
+ */
+async function rolesDeEmpresa(
+  conexion: Connection,
+  empresaId: string,
+): Promise<Record<string, string>> {
+  const [roles] = await conexion.query<RowDataPacket[]>(
+    'SELECT `id`, `codigo` FROM `rol` WHERE `empresa_id` = ? AND `deleted_at` IS NULL',
+    [empresaId],
+  );
+  const porCodigo: Record<string, string> = {};
+  for (const rol of roles) porCodigo[rol.codigo as string] = rol.id as string;
+  return porCodigo;
+}
+
 async function insertarSiFalta(
   conexion: Connection,
   descripcion: string,
@@ -139,6 +160,12 @@ export async function asegurarDatosDePrueba(
     IDS_PRUEBA.usuario,
   ]);
 
+  // Cada empresa recibe una copia de los roles de plantilla. Va justo despues de
+  // crearla: `crearRolesPlantilla` necesita una empresa que ya exista para poder
+  // apuntarle la FK, y sin esos roles la empresa nace sin forma de asignarle un rol a
+  // nadie, con lo que el usuario no podria autenticarse en ella.
+  const rolesPorEmpresa = new Map<string, Record<string, string>>();
+
   for (const [id, codigo, nombre] of [
     [IDS_PRUEBA.empresaA, 'PRUEBA_A', 'Empresa de Prueba A'],
     [IDS_PRUEBA.empresaB, 'PRUEBA_B', 'Empresa de Prueba B'],
@@ -159,24 +186,27 @@ export async function asegurarDatosDePrueba(
       'UPDATE empresa SET codigo = ?, nombre = ?, activo = 1 WHERE id = ?',
       [codigo, nombre, id],
     );
-  }
 
-  const [roles] = await conexion.query<RowDataPacket[]>(
-    'SELECT id, codigo FROM rol WHERE codigo IN (?, ?)',
-    ['RRHH', 'EMPLEADO'],
-  );
-  const rolPorCodigo: Record<string, string> = {};
-  for (const rol of roles)
-    rolPorCodigo[rol.codigo as string] = rol.id as string;
+    await crearRolesPlantilla(ejecutarConMysql(conexion), id as string);
+    rolesPorEmpresa.set(
+      id as string,
+      await rolesDeEmpresa(conexion, id as string),
+    );
+  }
 
   for (const [id, empresaId, rolCodigo] of [
     [IDS_PRUEBA.membresiaA, IDS_PRUEBA.empresaA, 'RRHH'],
     [IDS_PRUEBA.membresiaB, IDS_PRUEBA.empresaB, 'EMPLEADO'],
   ]) {
-    const rolId = rolPorCodigo[rolCodigo];
+    // Se busca el rol DENTRO de la empresa. Antes de que los roles fueran por empresa,
+    // `SELECT id FROM rol WHERE codigo = ?` bastaba; con roles por empresa ese select
+    // devuelve tres filas y el rol de la empresa A terminaria siendo el de la B.
+    const rolId = rolesPorEmpresa.get(empresaId as string)?.[
+      rolCodigo as string
+    ];
     if (!rolId) {
       throw new Error(
-        `Falta el rol ${rolCodigo}: ejecuta las migraciones antes de la semilla`,
+        `Falta el rol ${rolCodigo} en ${empresaId}: ejecuta las migraciones antes de la semilla`,
       );
     }
 

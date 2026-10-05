@@ -1,0 +1,10 @@
+﻿import { createConnection } from "mysql2/promise";
+import "dotenv/config";
+const c = await createConnection({host:process.env.DB_HOST,port:+process.env.DB_PORT,user:process.env.DB_USERNAME,password:process.env.DB_PASSWORD,database:process.env.DB_DATABASE});
+const [r] = await c.query("SELECT r.codigo, e.codigo AS empresa, COUNT(rp.permiso_id) AS permisos FROM rol r LEFT JOIN empresa e ON e.id=r.empresa_id LEFT JOIN rol_permiso rp ON rp.rol_id=r.id GROUP BY r.id, r.codigo, e.codigo ORDER BY r.codigo, e.codigo");
+for (const x of r) console.log(`  ${x.codigo.padEnd(14)} ${String(x.empresa ?? "plantilla").padEnd(10)} ${x.permisos} permisos`);
+const [m] = await c.query("SELECT e.codigo AS empresa, r.codigo AS rol FROM usuario_empresa ue JOIN empresa e ON e.id=ue.empresa_id JOIN rol r ON r.id=ue.rol_id");
+console.log("membresias:", m.map(x=>`${x.empresa}->${x.rol}`).join(" | "));
+const [s] = await c.query("SELECT DISTINCT empresa_codigo_vigente AS clave FROM rol WHERE empresa_codigo_vigente IS NOT NULL ORDER BY clave");
+console.log("unicidad por empresa:", s.map(x=>x.clave).join(" | "));
+await c.end();

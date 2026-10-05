@@ -955,9 +955,16 @@ describe('Catalogos: departamentos y puestos (e2e)', () => {
       expect(Number(fila?.n)).toBe(0);
     });
 
-    it('el rol EMPLEADO vuelve a tener solo los permisos de la semilla', async () => {
-      // Si la revocacion de la seccion 5 fallara, la siguiente ejecucion empezaria con
-      // la base ya tocada y las comprobaciones de permisos de la seccion 1 mentirian.
+    it('el rol EMPLEADO de empresaB conserva los permisos de la semilla', async () => {
+      // Que la revocacion de la seccion 5 funcione lo comprueba el propio
+      // `conPermisosTemporales`, que mira solo lo que concedio esa ejecucion.
+      //
+      // Aqui se mira lo contrario: que los permisos de la semilla sigan puestos. Es un
+      // subconjunto, no una igualdad, y a proposito. Todas las suites comparten el rol
+      // EMPLEADO de empresaB y corren en paralelo, asi que una igualdad exacta puede
+      // pillar los permisos que otra suite esta GRANTANDO en ese mismo instante y
+      // fallar sin que nada este roto. Un subconjunto aguanta esa concurrencia y aun
+      // asi detecta que alguien revoco un permiso de la semilla por error.
       const filas = await consultar(
         conexion,
         `SELECT p.codigo
@@ -965,14 +972,35 @@ describe('Catalogos: departamentos y puestos (e2e)', () => {
            JOIN rol r ON r.id = rp.rol_id
            JOIN permiso p ON p.id = rp.permiso_id
           WHERE r.codigo = 'EMPLEADO'
+            AND r.empresa_id = ?
           ORDER BY p.codigo`,
+        [IDS_PRUEBA.empresaB],
+      );
+      const codigos = filas.map((f) => f.codigo);
+
+      expect(codigos).toEqual(
+        expect.arrayContaining([
+          'empleado.leer',
+          'empresa.leer',
+          'persona.leer',
+        ]),
+      );
+    });
+
+    it('una membresia nunca apunta a un rol de plantilla', async () => {
+      // `empresa_id IS NULL` marca los roles plantilla, que no son de ninguna empresa.
+      // Asignar uno a un usuario equivaldria a darle permisos fuera de su tenant, y es
+      // justo lo que se quiere que sea imposible.
+      const filas = await consultar(
+        conexion,
+        `SELECT ue.id, e.codigo AS empresa
+           FROM usuario_empresa ue
+           JOIN rol r ON r.id = ue.rol_id
+           JOIN empresa e ON e.id = ue.empresa_id
+          WHERE r.empresa_id IS NULL`,
       );
 
-      expect(filas.map((f) => f.codigo)).toEqual([
-        'empleado.leer',
-        'empresa.leer',
-        'persona.leer',
-      ]);
+      expect(filas).toEqual([]);
     });
   });
 });

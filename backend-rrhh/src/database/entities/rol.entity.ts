@@ -8,20 +8,47 @@ import {
   ManyToOne,
   PrimaryColumn,
 } from 'typeorm';
+import { Empresa } from './empresa.entity.js';
 import { Usuario } from './usuario.entity.js';
 
 /**
- * Rol (catálogo global). `es_sistema` protege los roles sembrados.
+ * Rol de una empresa.
+ *
+ * `empresa_id` NULL + `es_sistema = 1` marca una **plantilla**: los tres roles que
+ * siembra `SeedRolesYPermisos`, que no pertenecen a ninguna empresa y se copian a cada
+ * empresa nueva con `crearRolesPlantilla`. Con empresa concreta, el rol pertenece a ese
+ * tenant y solo ese lo ve.
+ *
+ * `es_sistema` ya no significa "global", sino "viene de la plantilla": esos roles se
+ * pueden usar y asignar, pero no renombrar ni borrar, porque dejarlos inconsistentes
+ * entre empresas es peor que no permitir tocarlos.
+ *
+ * El unique `(empresa_id, codigo)` se apoya en `empresa_codigo_vigente`, una columna
+ * GENERATED que devuelve NULL si la fila esta eliminada logicamente: asi un rol puede
+ * volver a crearse tras un soft delete.
  */
 @Index('idx_rol_codigo', ['codigo'])
 @Index('idx_rol_nombre', ['nombre'])
+@Index('idx_rol_empresa', ['empresa_id'])
+@Index('idx_rol_empresa_codigo', ['empresa_id', 'codigo'])
 @Index('idx_rol_created_by', ['created_by'])
 @Index('idx_rol_updated_by', ['updated_by'])
-@Index('uq_rol_codigo', ['codigo_vigente'], { unique: true })
+@Index('uq_rol_empresa_codigo', ['empresa_codigo_vigente'], { unique: true })
 @Entity('rol')
 export class Rol {
   @PrimaryColumn({ type: 'char', length: 36 })
   id: string;
+
+  @ManyToOne(() => Empresa, {
+    nullable: true,
+    onDelete: 'RESTRICT',
+    onUpdate: 'NO ACTION',
+  })
+  @JoinColumn({
+    name: 'empresa_id',
+    foreignKeyConstraintName: 'fk_rol_empresa',
+  })
+  empresa_id: Empresa | null;
 
   @Column({ type: 'varchar', length: 50 })
   codigo: string;
@@ -81,15 +108,16 @@ export class Rol {
   deleted_at: Date | null;
 
   @Column({
-    name: 'codigo_vigente',
+    name: 'empresa_codigo_vigente',
     type: 'varchar',
-    length: 50,
-    asExpression: 'IF(`deleted_at` IS NULL, `codigo`, NULL)',
+    length: 100,
+    asExpression:
+      "IF(`deleted_at` IS NULL, IF(`empresa_id` IS NULL, `codigo`, CONCAT(`empresa_id`, '-', `codigo`)), NULL)",
     generatedType: 'STORED',
     insert: false,
     update: false,
     select: false,
     nullable: true,
   })
-  codigo_vigente: string | null;
+  empresa_codigo_vigente: string | null;
 }
