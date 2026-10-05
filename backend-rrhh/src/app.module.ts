@@ -10,9 +10,8 @@ import { DepartamentosModule } from './departamentos/departamento.module.js';
 import { PuestosModule } from './puestos/puesto.module.js';
 import { PersonasModule } from './personas/persona.module.js';
 import { EmpleadosModule } from './empleados/empleado.module.js';
+import { SaludModule } from './salud/salud.module.js';
 import { JwtAuthGuard, PermissionsGuard } from './auth/guards.js';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
 
 @Module({
   imports: [
@@ -24,15 +23,14 @@ import { AppService } from './app.service.js';
     PuestosModule,
     PersonasModule,
     EmpleadosModule,
+    SaludModule,
     // Limite global por IP. Los endpoints de login y refresh llevan ademas su
     // propio limite, mas estricto.
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: configApp().throttleGlobal },
     ]),
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     // Primero el limite de peticiones, para que un login masivo se descarte antes
     // de llegar a bcrypt. Sin registrar el guard, los decoradores `@Throttle` de
     // cada endpoint no se aplican.

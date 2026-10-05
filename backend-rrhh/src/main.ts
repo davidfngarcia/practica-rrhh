@@ -1,8 +1,10 @@
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
 import { configurarCuerpoJson } from './common/cuerpo.js';
 import { FiltroErrores, pipeValidacion } from './common/errores.js';
+import { configurarPrefijo } from './common/prefijo.js';
 import { configApp } from './config/config.js';
 
 async function bootstrap() {
@@ -34,6 +36,69 @@ async function bootstrap() {
   // Un solo formato de error para toda la API, tambien en castellano.
   app.useGlobalFilters(new FiltroErrores());
 
+  /**
+   * Prefijo de version de la API. Sin esto, cambiar de contrato obligaria a romper a
+   * todos los clientes a la vez; con el, `/api/v1` y `/api/v2` pueden convivir mientras
+   * los clientes migran.
+   *
+   * La configuracion vive en `common/prefijo.ts` porque las pruebas E2E necesitan el mismo
+   * prefijo: si cada una escribiera el suyo, las pruebas darian verde contra rutas que ya
+   * no existen.
+   */
+  configurarPrefijo(app);
+
+  /**
+   * OpenAPI.
+   *
+   * Se monta antes que `listen` porque `SwaggerModule.setup` registra sus propias rutas y
+   * hereda el prefijo global a menos que se le diga lo contrario.
+   *
+   * El documento se publica solo fuera de produccion. Es una descripcion completa de
+   * cada endpoint y de cada permiso, y publicarla en produccion es darle a quien quiera
+   * un mapa de la superficie de ataque.
+   */
+  if (config.nodeEnv !== 'production') {
+    const documento = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('API de RRHH')
+        .setDescription(
+          'Gestion de personal multiempresa. Cada peticion se resuelve contra la ' +
+            'empresa activa del token; no hay ninguna ruta que acepte un `empresa_id` ' +
+            'del cliente, porque permitirlo seria permitir leer datos de otra empresa.',
+        )
+        .setVersion('1.0')
+        .addBearerAuth(
+          {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+            description:
+              'Token de acceso. Se obtiene en `POST /api/v1/auth/login` y caduca a los ' +
+              '15 minutos. El refresh va en cookie httpOnly y no se envia aqui.',
+          },
+          'bearer',
+        )
+        .addTag('Auth', 'Sesion, empresa activa y perfil propio.')
+        .addTag('Puestos', 'Catalogo de puestos.')
+        .addTag('Departamentos', 'Catalogo de departamentos.')
+        .addTag('Personas', 'Catalogo global de personas.')
+        .addTag('Empleados', 'Contrataciones por empresa.')
+        .build(),
+    );
+
+    SwaggerModule.setup('api/docs', app, documento, {
+      // `useGlobalPrefix: false` porque la ruta se indica completa. Sin esto, Swagger
+      // antepondria `api/v1` y el documento quedaria en `/api/v1/api/docs`, que no es
+      // una direccion estable: cambiar la version moveria la documentacion.
+      useGlobalPrefix: false,
+      // `jsonDocumentUrl` permite descargar el JSON, que es lo que se mete en el
+      // generador de clientes del frontend.
+      jsonDocumentUrl: 'api/docs/openapi.json',
+      customSiteTitle: 'API de RRHH',
+    });
+  }
+
   // Cabeceras de seguridad basicas: evita MIME sniffing, clickjacking y XSS reflejado.
   app.use(
     helmet({
@@ -59,6 +124,10 @@ async function bootstrap() {
   // No se registran credenciales: host, usuario y nombre de base bastan para
   // averiguar bastante sobre la instalacion.
   console.log(`API escuchando en el puerto ${config.port} (${config.nodeEnv})`);
+
+  if (config.nodeEnv !== 'production') {
+    console.log(`Documentacion de la API en /api/docs`);
+  }
 }
 
 bootstrap();

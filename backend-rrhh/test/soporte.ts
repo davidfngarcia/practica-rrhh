@@ -13,6 +13,7 @@ import { INestApplication } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import type { Connection } from 'mysql2/promise';
+import { rutaApi } from '../src/common/prefijo.js';
 import {
   IDS_PRUEBA,
   PASSWORD_PRUEBA,
@@ -51,6 +52,7 @@ export async function crearAppDePrueba(): Promise<INestApplication> {
   const { configurarCuerpoJson } = await import('../src/common/cuerpo.js');
   const { FiltroErrores, pipeValidacion } =
     await import('../src/common/errores.js');
+  const { configurarPrefijo } = await import('../src/common/prefijo.js');
 
   const app = await NestFactory.create(AppModule, {
     logger: false,
@@ -62,6 +64,7 @@ export async function crearAppDePrueba(): Promise<INestApplication> {
   configurarCuerpoJson(app);
   app.useGlobalPipes(pipeValidacion());
   app.useGlobalFilters(new FiltroErrores());
+  configurarPrefijo(app);
 
   await app.init();
   return app;
@@ -106,7 +109,7 @@ export async function iniciarSesion(
   empresaId: string,
 ): Promise<string> {
   const respuesta = await request(app.getHttpServer())
-    .post('/auth/login')
+    .post(rutaApi('/auth/login'))
     .send({
       usuario: USUARIO_PRUEBA,
       password: PASSWORD_PRUEBA,
@@ -173,6 +176,8 @@ type Metodo = 'GET' | 'POST' | 'PATCH' | 'DELETE';
  * Envuelve supertest para devolver siempre los tres campos juntos. El cuerpo se
  * interpreta a mano, igual que la respuesta cruda, porque un error de Nest puede
  * responder con texto plano y las comparaciones necesitan el objeto.
+ *
+ * `ruta` va sin prefijo: lo anade `rutaApi`, la misma funcion que usa `main.ts`.
  */
 export async function llamar(
   app: INestApplication,
@@ -181,19 +186,20 @@ export async function llamar(
   opciones: { token?: string; cuerpo?: unknown } = {},
 ): Promise<RespuestaPeticion> {
   const servidor = app.getHttpServer();
+  const completa = rutaApi(ruta);
 
   // supertest tipa cada metodo por separado y no admite indexar por nombre, asi que se
   // escribe el `switch` en vez de `request(servidor)[metodo](ruta)`.
   const peticion = (() => {
     switch (metodo) {
       case 'GET':
-        return request(servidor).get(ruta);
+        return request(servidor).get(completa);
       case 'POST':
-        return request(servidor).post(ruta);
+        return request(servidor).post(completa);
       case 'PATCH':
-        return request(servidor).patch(ruta);
+        return request(servidor).patch(completa);
       case 'DELETE':
-        return request(servidor).delete(ruta);
+        return request(servidor).delete(completa);
     }
   })();
 

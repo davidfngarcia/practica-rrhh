@@ -59,23 +59,50 @@ no puede resolver por su cuenta.
 | `mantener`              | Cuenta (y con `--aplicar`, borra) lo caducado       |
 | `semilla`               | Crea o repara los datos de desarrollo               |
 
+## Rutas y versión
+
+Todo lo de negocio cuelga de **`/api/v1`**. La tabla de más abajo muestra las rutas sin el
+prefijo para que se lean; la ruta real es `/api/v1` + la de la tabla. Sin prefijo,
+cambiar de contrato obligaría a romper a todos los clientes a la vez; con él, `/api/v2`
+puede convivir con `/api/v1` mientras los clientes migran.
+
+Dos rutas quedan **fuera** del prefijo a propósito:
+
+| Ruta      | Método | Para qué                                                |
+| --------- | ------ | ------------------------------------------------------- |
+| `/health` | `GET`  | ¿vive el proceso? No mira nada más                      |
+| `/ready`  | `GET`  | ¿puede atender? Comprueba la base; `503` si no responde |
+
+Las consumen el orquestador y el balanceador, no el frontend. No pueden depender de la
+versión: un health check que cambia de ruta al subir de v2 tumba el despliegue entero.
+
+## Documentación de la API
+
+Con `NODE_ENV` distinto de `production`, la documentación interactiva está en
+`/api/docs` y el documento descargable en `/api/docs/openapi.json`. Está fuera del
+prefijo por el mismo motivo que las sondas, y no se publica en producción: es una
+descripción completa de cada endpoint y de cada permiso, y publicarla en producción es
+darle a quien quiera un mapa de la superficie de ataque.
+
 ## Autenticación
 
-`POST /auth/login` devuelve un access token en el cuerpo y el refresh en una cookie
-`httpOnly`. El access token es corto a propósito (15 minutos por defecto): es el que
-viaja en cada petición. El refresh se rota en cada uso y la familia de tokens se
-revoca entera si se detecta un reuso, de modo que un token robado deja de servir al
-detectar el robo y no después.
+`POST /api/v1/auth/login` devuelve un access token en el cuerpo y el refresh en una cookie
+`httpOnly` con `Path=/api/v1/auth`. El access token es corto a propósito (15 minutos por
+defecto): es el que viaja en cada petición. El refresh se rota en cada uso y la familia
+de tokens se revoca entera si se detecta un reuso, de modo que un token robado deja de
+servir al detectar el robo y no después.
 
 El token lleva `empresa_id`, así que **la empresa sale siempre de la sesión**. Ningún
 endpoint acepta `empresa_id` en el cuerpo, en la ruta ni en los filtros: aceptarlo
 permitiría que el rol RRHH de una empresa escribiera en el catálogo de otra.
 
-`POST /auth/cambiar-empresa` emite un token para otra empresa de la que el usuario es
-miembro y revoca el refresh anterior. Se audita como `CAMBIO_EMPRESA`, no como
+`POST /api/v1/auth/cambiar-empresa` emite un token para otra empresa de la que el usuario
+es miembro y revoca el refresh anterior. Se audita como `CAMBIO_EMPRESA`, no como
 `LOGOUT`: el usuario no cerró su sesión, pidió un token distinto.
 
 ## Rutas
+
+Sin el prefijo `/api/v1`.
 
 | Ruta                                       | Método   | Permiso                  |
 | ------------------------------------------ | -------- | ------------------------ |
@@ -97,6 +124,9 @@ miembro y revoca el refresh anterior. Se audita como `CAMBIO_EMPRESA`, no como
 | `/empleados`                               | `POST`   | `empleado.crear`         |
 | `/empleados`                               | `PATCH`  | `empleado.actualizar`    |
 | `/empleados`                               | `DELETE` | `empleado.eliminar`      |
+
+**Pendiente**: los listados (`GET /`) no declaran la forma de su respuesta, así que en el
+documento aparecen sin esquema. Los de detalle, altas y actualizaciones sí la declaran.
 
 Cada recurso expone `GET /`, `GET /:id`, `POST /`, `PATCH /:id` y `DELETE /:id`. Los
 `DELETE` devuelven `204` y son bajas lógicas: la fila se conserva porque es parte del

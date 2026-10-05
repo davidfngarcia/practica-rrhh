@@ -9,6 +9,7 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { configApp } from '../config/config.js';
@@ -24,6 +25,19 @@ import type { RefreshEmitido } from './sesiones.service.js';
 import { CurrentUser, contextoPeticion } from './sesion.decorator.js';
 import type { Claims, SesionActual } from './sesion.decorator.js';
 import { Public } from './guards.js';
+import {
+  Errores,
+  nuevaRespuesta,
+  RespuestaLista,
+  RespuestaOk,
+  RespuestaSinCuerpo,
+} from '../common/openapi.js';
+import {
+  LoginRespuestaDto,
+  SesionRespuestaDto,
+  TokenRespuestaDto,
+  EmpresaAccesoDto,
+} from '../common/respuesta.dto.js';
 
 /**
  * Cookie del refresh token.
@@ -35,12 +49,23 @@ import { Public } from './guards.js';
  */
 const COOKIE_REFRESH = 'rt';
 
+/**
+ * Ruta de la cookie.
+ *
+ * `/api/v1/auth` y no `/auth`: una cookie solo se envia si la peticion cae dentro de su
+ * `Path`, asi que dejar la ruta antigua haciaia que el refresh token fuese invisible para
+ * `/api/v1/auth/refresh` y que la sesion se cayera al renovarla. El prefijo se repite
+ * porque es el mismo que define `main.ts`, y hay que cambiarlo en los dos sitios al subir
+ * de version.
+ */
+const RUTA_COOKIE = '/api/v1/auth';
+
 function opcionesCookie(config: ConfigApp) {
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
     secure: config.nodeEnv === 'production',
-    path: '/auth',
+    path: RUTA_COOKIE,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   };
 }
@@ -62,6 +87,7 @@ interface RespuestaLogin {
 }
 
 @Controller('auth')
+@ApiTags('Auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
@@ -80,6 +106,23 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: configApp().throttleLogin, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Abrir sesion. Devuelve el token de acceso en el cuerpo y el refresh en una ' +
+      'cookie httpOnly.',
+    description:
+      'Si el usuario pertenece a varias empresas hay que enviar `empresa_id`: sin el, ' +
+      'es un 401 para no abrir la sesion sobre una empresa que el cliente no ha pedido.',
+  })
+  @Errores(
+    nuevaRespuesta(
+      401,
+      'Credenciales incorrectas, cuenta dada de baja, o el usuario no tiene acceso a ' +
+        'la empresa indicada.',
+    ),
+    nuevaRespuesta(429, 'Demasiados intentos de acceso desde esta IP.'),
+  )
+  @RespuestaOk('Sesion iniciada.', LoginRespuestaDto)
   async login(
     @Body() dto: LoginDto,
     @Req() request: Request,
@@ -135,6 +178,22 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: configApp().throttleRefresh, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Renovar el token de acceso. El refresh rota y el anterior queda invalidado.',
+    description:
+      'El refresh llega en la cookie `rt` que dejo el login. Reutilizar un token ya ' +
+      'rotado revoca la familia entera y devuelve 401, que es la forma de detectar un ' +
+      'token robado.',
+  })
+  @Errores(
+    nuevaRespuesta(
+      401,
+      'Falta el refresh token, ha caducado, o se ha reutilizado uno ya rotado.',
+    ),
+    nuevaRespuesta(429, 'Demasiadas renovaciones desde esta IP.'),
+  )
+  @RespuestaOk('Token renovado.', TokenRespuestaDto)
   async refresh(
     @Body() dto: RefreshDto,
     @Req() request: Request,
@@ -164,6 +223,11 @@ export class AuthController {
   /** Cierra la sesion: revoca la familia completa de refresh tokens. */
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Cerrar la sesion. Revoca la familia completa de refresh tokens.',
+  })
+  @Errores()
+  @RespuestaSinCuerpo('Sesion cerrada.', 204)
   async logout(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
@@ -184,7 +248,13 @@ export class AuthController {
 
   /** Sesion actual, tal y como la ve el frontend. */
   @Get('me')
-  async me(@CurrentUser() sesion: SesionActual) {
+  @ApiOperation({
+    summary:
+      'Sesion actual: usuario, empresa activa, rol y permisos efectivos.',
+  })
+  @Errores()
+  @RespuestaOk('La sesion actual.', SesionRespuestaDto)
+  async me(@CurrentUser() sesion: SesionActual): Promise<SesionRespuestaDto> {
     return {
       usuario: sesion.usuario,
       usuario_id: sesion.sub,
@@ -196,6 +266,12 @@ export class AuthController {
 
   /** Empresas disponibles para este usuario. */
   @Get('empresas')
+  @ApiOperation({
+    summary:
+      'Empresas a las que este usuario tiene acceso, con su rol en cada una.',
+  })
+  @Errores()
+  @RespuestaLista('Lista de empresas accesibles.', EmpresaAccesoDto)
   async empresas(@CurrentUser('sub') usuarioId: string) {
     return this.authService.listarEmpresas(usuarioId);
   }
@@ -206,6 +282,18 @@ export class AuthController {
    */
   @Post('cambiar-empresa')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Emitir un token para otra empresa. Revoca el refresh anterior y abre una familia ' +
+      'nueva.',
+  })
+  @Errores(
+    nuevaRespuesta(
+      401,
+      'El usuario no tiene acceso a la empresa indicada, o no hay refresh que rotar.',
+    ),
+  )
+  @RespuestaOk('Token emitido para la empresa elegida.', LoginRespuestaDto)
   async cambiarEmpresa(
     @Body() dto: CambiarEmpresaDto,
     @CurrentUser() sesion: SesionActual,

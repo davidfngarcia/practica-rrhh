@@ -26,6 +26,10 @@ const { AppModule } = await import('../dist/app.module.js');
 const { configurarCuerpoJson } = await import('../dist/common/cuerpo.js');
 const { FiltroErrores, pipeValidacion } =
   await import('../dist/common/errores.js');
+// El prefijo tambien se importa del codigo real y no se escribe aqui: si las rutas de
+// esta suite y las de `main.ts` dejaran de coincidir, todas las comprobaciones darian 404
+// sin que ninguna dijera por que.
+const { configurarPrefijo } = await import('../dist/common/prefijo.js');
 
 let pasadas = 0;
 let fallos = 0;
@@ -77,6 +81,7 @@ const app = await NestFactory.create(AppModule, {
 configurarCuerpoJson(app);
 app.useGlobalPipes(pipeValidacion());
 app.useGlobalFilters(new FiltroErrores());
+configurarPrefijo(app);
 await app.listen(0);
 
 const { port } = app.getHttpServer().address();
@@ -102,12 +107,25 @@ async function consultar(sql, parametros = []) {
   return filas;
 }
 
+/**
+ * Prefijo de version de la API.
+ *
+ * El script escribe las rutas como las ve undeveloper en el controlador (`/auth/me`) y
+ * el prefijo se anade aqui, igual que en `src/common/prefijo.ts`. Escribir `/api/v1` en
+ * cada llamada haria que subir de version fuese cambiar 47 lineas de este fichero.
+ */
+const PREFIJO = '/api/v1';
+
+/** Rutas fuera del prefijo: las sondas las consulta el orquestador, no el frontend. */
+const SIN_VERSION = ['/health', '/ready'];
+
 async function llamar(metodo, ruta, { token, cookie, cuerpo, crudo } = {}) {
   const cabeceras = { 'content-type': 'application/json' };
   if (token) cabeceras.authorization = `Bearer ${token}`;
   if (cookie) cabeceras.cookie = cookie;
 
-  const respuesta = await fetch(`${url}${ruta}`, {
+  const completa = SIN_VERSION.includes(ruta) ? ruta : `${PREFIJO}${ruta}`;
+  const respuesta = await fetch(`${url}${completa}`, {
     method: metodo,
     headers: cabeceras,
     // `crudo` permite enviar un cuerpo invalido a proposito, que es justo lo que
@@ -155,12 +173,15 @@ console.log(`\nApp escuchando en ${url}\n`);
 
 console.log('1. Guard global: rutas publicas y protegidas');
 {
-  const raiz = await llamar('GET', '/');
-  comprobar(
-    'GET / es publico y responde 200',
-    raiz.estado === 200,
-    `estado ${raiz.estado}`,
-  );
+    // `/health`, y no `/`: la comprobaba el `AppController` del andamiaje de Nest, que se
+    // elimino. La sonda sigue siendo lavia publica y sin token, que es lo que hay que
+    // verificar: que el guard global la deja pasar.
+    const sonda = await llamar('GET', '/health');
+    comprobar(
+      'GET /health es publico y responde 200',
+      sonda.estado === 200,
+      `estado ${sonda.estado}`,
+    );
 
   const me = await llamar('GET', '/auth/me');
   comprobar(
